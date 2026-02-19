@@ -76,7 +76,7 @@ logs/
 # =========================
 # Future: model artifacts
 # =========================
-models/
+
 checkpoints/
 embeddings_cache/
 

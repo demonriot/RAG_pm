@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+pydantic
+sqlalchemy
+psycopg2-binary
+pgvector
+redis
+boto3
+python-dotenv
+loguru
+sqlalchemy
+alembic
+python-multipart

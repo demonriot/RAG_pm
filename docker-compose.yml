@@ -62,6 +62,19 @@ services:
     volumes:
       - .:/app
 
+  embed-worker:
+    build:
+      context: .
+      dockerfile: docker/worker.Dockerfile
+    container_name: copilot-embed-worker
+    command: ["python", "-u", "-m", "app.embeddings.worker"]
+    env_file:
+      - .env
+    depends_on:
+      - postgres
+      - redis
+      - minio
+    restart: unless-stopped
 
 volumes:
   pgdata:

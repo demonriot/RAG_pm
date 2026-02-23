@@ -8,6 +8,6 @@ redis
 boto3
 python-dotenv
 loguru
-sqlalchemy
 alembic
 python-multipart
+requests

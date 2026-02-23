@@ -2,14 +2,17 @@ import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-DATABASE_URL = (
-    f"postgresql://{os.getenv('POSTGRES_USER')}:{os.getenv('POSTGRES_PASSWORD')}"
-    f"@{os.getenv('POSTGRES_HOST')}:{os.getenv('POSTGRES_PORT')}/{os.getenv('POSTGRES_DB')}"
-)
+host = os.getenv("POSTGRES_HOST", "postgres")
+port = int(os.getenv("POSTGRES_PORT", "5432"))
+db   = os.getenv("POSTGRES_DB", "postgres")
+user = os.getenv("POSTGRES_USER", "postgres")
+pw   = os.getenv("POSTGRES_PASSWORD", "postgres")
+
+DATABASE_URL = f"postgresql://{user}:{pw}@{host}:{port}/{db}"
 
 engine = create_engine(
     DATABASE_URL,
-    pool_pre_ping=True,  # helps with dropped connections in containers
+    pool_pre_ping=True,
 )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

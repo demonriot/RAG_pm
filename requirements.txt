@@ -11,3 +11,4 @@ loguru
 alembic
 python-multipart
 requests
+voyageai>=0.2.0

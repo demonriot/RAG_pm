@@ -86,3 +86,7 @@ embeddings_cache/
 *.bak
 *.tmp
 *.orig
+
+*.html
+*.json
+*.txt

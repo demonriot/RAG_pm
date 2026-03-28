@@ -13,24 +13,33 @@ router = APIRouter(prefix="/ingest", tags=["ingest"])
 
 BUCKET = "documents"
 
+
 def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
 
 @router.post("/upload")
 async def upload(
     title: str = Form(...),
-    doc_type: str = Form(...),  # pdf/md/docx/html/txt
+    doc_type: str = Form(...),  # stored in Document.doc_type
     tags: str | None = Form(None),  # comma-separated
     file: UploadFile = File(...),
+
+    # Optional structured-ingestion fields
+    source_type: str | None = Form(None),          # e.g. "osu_catalog"
+    catalog_doc_type: str | None = Form(None),     # e.g. "course" / "program" / "policy"
+    source_url: str | None = Form(None),
+    accessed_date: str | None = Form(None),
+    catalog_year: str | None = Form(None),
+    course_code: str | None = Form(None),
+    program_name: str | None = Form(None),
 ):
-    # read file bytes
     data = await file.read()
     if not data:
         raise HTTPException(status_code=400, detail="Empty file")
 
     ensure_bucket(BUCKET)
 
-    # create doc + version
     doc_id = uuid.uuid4()
     version_id = uuid.uuid4()
 
@@ -41,11 +50,9 @@ async def upload(
 
     db = SessionLocal()
     try:
-        # create document
         doc = Document(id=doc_id, title=title, doc_type=doc_type)
         db.add(doc)
 
-        # version_number = 1 for MVP (later: auto increment per doc)
         ver = DocumentVersion(
             id=version_id,
             document_id=doc_id,
@@ -57,18 +64,29 @@ async def upload(
         db.add(ver)
         db.commit()
 
-        # upload to MinIO after commit (so IDs exist)
         upload_bytes(BUCKET, storage_key, data, content_type=file.content_type)
 
-        # enqueue job
         enqueue_job({
             "doc_id": str(doc_id),
             "version_id": str(version_id),
-            "doc_type": doc_type,
+
+            # file/storage info
+            "file_type": doc_type,   # important for worker decode path
             "bucket": BUCKET,
             "key": storage_key,
+
+            # generic metadata
             "tags": tag_list,
             "title": title,
+
+            # structured catalog metadata
+            "source_type": source_type,
+            "catalog_doc_type": catalog_doc_type,
+            "source_url": source_url,
+            "accessed_date": accessed_date,
+            "catalog_year": catalog_year,
+            "course_code": course_code,
+            "program_name": program_name,
         })
 
         return {
@@ -76,11 +94,12 @@ async def upload(
             "version_id": str(version_id),
             "status": "queued",
         }
-    except Exception as e:
+    except Exception:
         db.rollback()
         raise
     finally:
         db.close()
+
 
 @router.get("/status/{version_id}")
 def status(version_id: str):

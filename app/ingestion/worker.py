@@ -1,6 +1,7 @@
 import uuid
 import hashlib
 from datetime import datetime
+
 from sqlalchemy import update
 
 from app.db.session import SessionLocal
@@ -104,18 +105,30 @@ def run_once(job: dict):
             parsed_title, clean_text, structured_chunks = build_catalog_chunks(job, raw_text)
 
             for idx, chunk in enumerate(structured_chunks):
+                metadata = chunk.metadata or {}
+                print(
+                        {
+                            "idx": idx,
+                            "doc_type": getattr(chunk, "doc_type", None),
+                            "course_code": getattr(chunk, "course_code", None),
+                            "program_name": getattr(chunk, "program_name", None),
+                            "source_url": getattr(chunk, "source_url", None),
+                            "accessed_date": getattr(chunk, "accessed_date", None),
+                            "catalog_year": getattr(chunk, "catalog_year", None),
+                            "citation_label": getattr(chunk, "citation_label", None),
+                            "section": getattr(chunk, "section", None),
+                            "metadata": getattr(chunk, "metadata", None),
+                            "text_preview": (getattr(chunk, "text", "") or "")[:120],
+                        },
+                        flush=True,
+                    )
+
+                # Keep tags only as optional loose labels
                 tags = _merge_tags(
                     job.get("tags"),
                     [
-                        f"doc_type:{chunk.doc_type}",
-                        f"title:{parsed_title}",
-                        f"source_url:{chunk.source_url}",
-                        f"accessed_date:{chunk.accessed_date}",
-                        f"catalog_year:{chunk.catalog_year}" if chunk.catalog_year else None,
-                        f"citation_label:{chunk.citation_label}",
-                        f"course_code:{chunk.course_code}" if chunk.course_code else None,
-                        f"program_name:{chunk.program_name}" if chunk.program_name else None,
-                        f"section_parser:{chunk.metadata.get('section_parser')}" if chunk.metadata else None,
+                        f"catalog_doc_type:{chunk.doc_type}" if chunk.doc_type else None,
+                        f"section_parser:{metadata.get('section_parser')}" if metadata.get("section_parser") else None,
                     ],
                 )
 
@@ -130,6 +143,18 @@ def run_once(job: dict):
                     content=chunk.text,
                     token_count=None,
                     tags=tags,
+
+                    # structured metadata
+                    doc_type=chunk.doc_type,
+                    course_code=chunk.course_code,
+                    program_name=chunk.program_name,
+                    source_url=chunk.source_url,
+                    accessed_date=chunk.accessed_date,
+                    catalog_year=chunk.catalog_year,
+                    citation_label=chunk.citation_label,
+                    section=chunk.section,
+                    section_parser=metadata.get("section_parser"),
+                    subchunk_index=metadata.get("subchunk_index"),
                 )
                 db.add(ch)
 
@@ -138,6 +163,22 @@ def run_once(job: dict):
             parts = simple_chunk(raw_text)
 
             for idx, chunk_text in enumerate(parts):
+                print(
+                        {
+                            "idx": idx,
+                            "doc_type": getattr(chunk, "doc_type", None),
+                            "course_code": getattr(chunk, "course_code", None),
+                            "program_name": getattr(chunk, "program_name", None),
+                            "source_url": getattr(chunk, "source_url", None),
+                            "accessed_date": getattr(chunk, "accessed_date", None),
+                            "catalog_year": getattr(chunk, "catalog_year", None),
+                            "citation_label": getattr(chunk, "citation_label", None),
+                            "section": getattr(chunk, "section", None),
+                            "metadata": getattr(chunk, "metadata", None),
+                            "text_preview": (getattr(chunk, "text", "") or "")[:120],
+                        },
+                        flush=True,
+                    )
                 ch = Chunk(
                     id=uuid.uuid4(),
                     document_id=uuid.UUID(job["doc_id"]),
@@ -149,6 +190,18 @@ def run_once(job: dict):
                     content=chunk_text,
                     token_count=None,
                     tags=job.get("tags"),
+
+                    # generic chunks won't have structured catalog metadata
+                    doc_type=None,
+                    course_code=None,
+                    program_name=None,
+                    source_url=None,
+                    accessed_date=None,
+                    catalog_year=None,
+                    citation_label=None,
+                    section=None,
+                    section_parser=None,
+                    subchunk_index=None,
                 )
                 db.add(ch)
 

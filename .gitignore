@@ -90,3 +90,5 @@ embeddings_cache/
 *.html
 *.json
 *.txt
+
+test*.py

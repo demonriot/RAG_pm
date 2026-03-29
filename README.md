@@ -1,144 +1,136 @@
-# Enterprise Engineering Knowledge Copilot
+# Agentic RAG Course Planning & Knowledge Copilot
 
-A robust RAG (Retrieval-Augmented Generation) system designed for enterprise knowledge management. This project provides an asynchronous document ingestion pipeline, supporting multiple formats, version control, and scalable storage.
+A robust RAG (Retrieval-Augmented Generation) system designed for enterprise knowledge management and intelligent course planning. This project provides an asynchronous document ingestion pipeline, conversational querying, semantic search, and structured planning using LLMs. It features a scalable backend with worker queues and a thin Streamlit frontend for demonstration.
 
 ## 🚀 Key Features
 
 *   **Document Ingestion**: Supports uploading PDF, Markdown, HTML, and TXT files.
-*   **Asynchronous Processing**: Uses Redis-backed queues for background processing to handle large volumes of documents without blocking the API.
-*   **Versioning**: Tracks document versions, status (queued, processing, done, failed), and history.
+*   **Asynchronous Processing**: Uses Redis-backed queues for background processing (parsing, chunking) to handle large volumes of documents without blocking the API.
+*   **Vector Embeddings**: Background worker logic for generating embeddings utilizing models from OpenAI and Voyage AI.
+*   **Conversational Agent**: Context-aware Q&A based on uploaded documents.
+*   **Course Planning & Eligibility**: Agentic reasoning to evaluate curriculum prerequisites, plan future terms, and check enrollment eligibility.
+*   **Streamlit UI**: Thin wrapper UI testing the underlying APIs for free-form query, eligibility, and recommendation flows.
 *   **Scalable Architecture**:
-    *   **FastAPI**: High-performance API for ingestion and status checks.
-    *   **PostgreSQL + pgvector**: Relational data and vector similarity search.
+    *   **FastAPI**: High-performance API for ingestion, querying, reasoning, and status checks.
+    *   **PostgreSQL + pgvector**: Relational data, document metadata, and vector similarity search.
     *   **MinIO**: S3-compatible object storage for raw document files.
-    *   **Redis**: High-performance task queue.
+    *   **Redis**: High-performance task queue (job processing).
 
 ## 🛠️ Tech Stack
 
 *   **Language**: Python 3.11
-*   **Web Framework**: FastAPI
+*   **Web Framework**: FastAPI (Backend) / Streamlit (Frontend)
 *   **Database**: PostgreSQL 15, SQLAlchemy (ORM), pgvector (Vector Store)
 *   **Storage**: MinIO (S3 Compatible)
 *   **Task Queue**: Redis
 *   **Containerization**: Docker & Docker Compose
 
 ## 📂 Project Structure
-```
+```text
 llmops/
 ├── app/
-│   ├── api/            # API Endpoints (Upload, Status)
+│   ├── api/            # FastAPI Endpoints (ingest, retrieve, query, planning)
 │   ├── core/           # Configuration & Settings
 │   ├── db/             # Database Models & Session Management
-│   ├── ingestion/      # Worker Logic, Queue, & Storage Wrappers
-│   └── main.py         # App Entrypoint
-├── docker/             # Dockerfiles for API and Worker
+│   ├── embeddings/     # Embeddings worker (OpenAI/Voyage AI integrations)
+│   ├── indexing/       # Search index generation
+│   ├── ingestion/      # Document ingestion logic, parsers, minio storage
+│   ├── planning/       # Course planning logic & reasoning
+│   ├── query/          # Query synthesis and LLM completion
+│   ├── reasoning/      # Core logic algorithms
+│   ├── rerank/         # Post-retrieval reranking algorithms
+│   └── retrieval/      # Vector and hybrid search logic
+├── docker/             # Dockerfiles for API and Workers
 ├── alembic/            # Database Migrations
+├── data/               # Local data/fixtures
+├── streamlit_app.py    # Streamlit UI Entrypoint
 ├── docker-compose.yml  # Orchestration
 └── requirements.txt    # Python Dependencies
 ```
+
 ## ❄️ Project Flow
 ```mermaid
     sequenceDiagram
-    actor User as User (cURL / Browser)
-    participant API as app/api/routes/ingest.py
-    participant DB as PostgreSQL (app/db/models/*)
-    participant MinIO as MinIO Storage (app/ingestion/storage.py)
-    participant R_Ingest as Redis Queue (ingest:jobs)
-    participant W_Ingest as app/ingestion/worker.py
-    participant R_Embed as Redis Queue (embed:jobs)
-    participant W_Embed as app/embeddings/worker.py
-    participant OpenAI as External API (provider.py)
+    actor User as User
+    participant Streamlit as Streamlit App
+    participant API as FastAPI Backend
+    participant DB as PostgreSQL + pgvector
+    participant MinIO as MinIO Storage
+    participant Redis_Q as Redis Queue
+    participant Workers as Async Workers
+    participant LLM as External APIs (OpenAI/Voyage)
 
-    %% --- PHASE 1: HTTP API REQUEST ---
+    %% HTTP API REQUEST
     rect rgb(20, 40, 60)
-    Note over User, API: Phase 1: API Upload (Fast response)
-    
-    User->>API: POST /ingest/upload (File + Metadata Form Data)
-    activate API
-    
-    API->>API: Read file bytes into memory
-    API->>MinIO: ensure_bucket('documents')
-    API->>API: Generate UUIDs (doc_id, version_id)
-    API->>API: Calculate SHA-256 hash of file
-    
-    %% Database setup
-    API->>DB: INSERT Document (id, title, metadata)
-    API->>DB: INSERT DocumentVersion (id, doc_id, status='queued')
-    DB-->>API: commit() successful
-    
-    %% File storage
-    API->>MinIO: upload_bytes(file data, path=docs/[doc_id]/[version_id])
-    MinIO-->>API: Upload successful
-    
-    %% Queue Hand-off
-    API->>R_Ingest: enqueue_job(doc_id, version_id, minio_path)
-    R_Ingest-->>API: Job added to list
-    
-    API-->>User: HTTP 200 OK {"version_id": "...", "status": "queued"}
-    deactivate API
+    Note over User, Streamlit: Streamlit Frontend Interaction
+    User->>Streamlit: Request (Upload / Query / Plan)
+    Streamlit->>API: HTTP Request (POST /ingest, /query, /plan)
     end
-
-    %% --- PHASE 2: INGESTION WORKER ---
+    
+    %% Ingestion Flow
     rect rgb(60, 40, 20)
-    Note over W_Ingest, DB: Phase 2: Ingestion Worker (Background Process)
-    
-    loop Every 5 Seconds
-        W_Ingest->>R_Ingest: dequeue_job_blocking()
+    Note over API, MinIO: Document Ingestion Flow
+    API->>MinIO: Store raw file
+    API->>DB: Record document & version status
+    API->>Redis_Q: Enqueue chunking/parsing job
+    Workers->>Redis_Q: Dequeue and process
+    Workers->>DB: Store parsed chunks
+    Workers->>Redis_Q: Enqueue embedding job
+    Workers->>LLM: Generate vectors
+    Workers->>DB: Store embeddings in pgvector
     end
     
-    R_Ingest-->>W_Ingest: Returns job JSON
-    activate W_Ingest
-    
-    W_Ingest->>DB: UPDATE DocumentVersion SET status='processing'
-    
-    W_Ingest->>MinIO: download_bytes(minio_path)
-    MinIO-->>W_Ingest: Returns raw file bytes
-    
-    W_Ingest->>W_Ingest: parse_bytes() (Decode to string)
-    W_Ingest->>W_Ingest: simple_chunk() (Split into overlap text chunks)
-    
-    loop For Each Chunk
-        W_Ingest->>DB: INSERT Chunk (version_id, raw_text, tsvector for lexical search)
-    end
-    
-    W_Ingest->>DB: UPDATE DocumentVersion SET status='done'
-    
-    W_Ingest->>R_Embed: enqueue_embed_job(doc_id, version_id)
-    R_Embed-->>W_Ingest: Job added to list
-    
-    deactivate W_Ingest
-    end
-
-    %% --- PHASE 3: EMBEDDING WORKER ---
+    %% Query Flow
     rect rgb(20, 60, 40)
-    Note over W_Embed, OpenAI: Phase 3: Embedding Worker (Background AI Processing)
-    
-    loop Every 5 Seconds
-        W_Embed->>R_Embed: dequeue_embed_job_blocking()
-    end
-    
-    R_Embed-->>W_Embed: Returns job JSON
-    activate W_Embed
-    
-    W_Embed->>DB: SELECT chunk_id, content FROM Chunks WHERE version_id = ? AND missing_embedding
-    DB-->>W_Embed: Returns list of text chunks
-    
-    loop Batch sizes of 64
-        W_Embed->>OpenAI: POST /v1/embeddings (List of text chunks, batch size 64)
-        OpenAI-->>W_Embed: Returns 1536-dimensional float vectors
-        
-        W_Embed->>DB: UPSERT ChunkEmbedding (chunk_id, pgvector_embedding)
-    end
-    
-    deactivate W_Embed
+    Note over API, LLM: RAG & Agentic Planning Flow
+    API->>DB: Semantic search (vector comparison)
+    DB-->>API: Relevant context
+    API->>LLM: Generate final structured response / plan
+    API-->>Streamlit: JSON response with citations
+    Streamlit-->>User: Rendered Response
     end
 ```
+
+## 🔑 Environment Variables
+
+The project relies on a `.env` file at the root directory to configure the database, storage, queues, and external APIs. You must create this file before starting the application.
+
+Required keys (DO NOT commit their values):
+
+```env
+# MinIO Storage Configuration
+MINIO_ROOT_USER=
+MINIO_ROOT_PASSWORD=
+MINIO_ENDPOINT=
+MINIO_ACCESS_KEY=
+MINIO_SECRET_KEY=
+
+# Redis Queue Configuration
+REDIS_HOST=
+REDIS_PORT=
+
+# PostgreSQL / pgvector Database Configuration
+POSTGRES_USER=
+POSTGRES_PASSWORD=
+POSTGRES_DB=
+POSTGRES_HOST=
+POSTGRES_PORT=
+
+# AI Model Provider Keys
+OPENAI_API_KEY=
+VOYAGE_API_KEY=
+
+# Vector Database Selection (e.g., pgvector)
+VECTOR_BACKEND=
+```
+
 ## 🏁 Getting Started
 
 ### Prerequisites
 
 *   [Docker](https://www.docker.com/) installed on your machine.
 *   [Docker Compose](https://docs.docker.com/compose/) installed.
+*   Valid API keys for OpenAI (and optionally Voyage AI) placed inside your `.env` file.
 
 ### Installation & Running
 
@@ -149,61 +141,40 @@ llmops/
     ```
 
 2.  **Environment Configuration**:
-    Create a `.env` file in the root directory (if not present) with necessary configurations. _(See `docker-compose.yml` for default environment variables used in containers)_.
+    Create a `.env` file in the root directory and populate it with the fields listed above in the Environment Variables section. _(See `docker-compose.yml` for internal container default mappings)_.
 
 3.  **Start Services**:
-    Run the following command to build and start the API, Worker, Database, Redis, and MinIO:
+    Run the following command to build and start the API, Worker, Embeddings Worker, PostgreSQL, Redis, and MinIO:
     ```bash
     docker-compose up --build
     ```
 
-4.  **Access Components**:
-    *   **API Documentation**: [http://localhost:8000/docs](http://localhost:8000/docs)
-    *   **MinIO Console**: [http://localhost:9001](http://localhost:9001) (User: `minio`, Pass: `minio123`)
+4.  **Launch the Streamlit App** (Optionally run the UI directly on localhost):
+    ```bash
+    pip install streamlit requests
+    streamlit run streamlit_app.py
+    ```
+    Alternatively, if Streamlit is baked into another container/setup, simply ensure the required python dependencies are active in your environment before executing it.
 
-## 🔌 API Usage
+5.  **Access Components**:
+    *   **Streamlit UI**: [http://localhost:8501](http://localhost:8501) (Default port)
+    *   **FastAPI Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
+    *   **MinIO Console**: [http://localhost:9001](http://localhost:9001)
+
+## 🔌 Core API Endpoints
 
 ### 1. Upload a Document
-
-**Endpoint**: `POST /ingest/upload`
-
-**Form Data**:
-*   `file`: The document to upload.
-*   `title`: Document title.
-*   `doc_type`: Type (e.g., `md`, `txt`, `html`).
-*   `tags`: (Optional) Comma-separated tags.
-
-**Response**:
-```json
-{
-  "doc_id": "uuid...",
-  "version_id": "uuid...",
-  "status": "queued"
-}
-```
+*   **Endpoint:** `POST /ingest/upload`
+*   **Description:** Upload documents asynchronously to MinIO and trigger chunking and embedding generation jobs.
 
 ### 2. Check Ingestion Status
+*   **Endpoint:** `GET /ingest/status/{version_id}`
+*   **Description:** Fetch document processing job statuses.
 
-**Endpoint**: `GET /ingest/status/{version_id}`
+### 3. Agentic Query
+*   **Endpoint:** `POST /query`
+*   **Description:** Natural language query answering utilizing context from ingested documents.
 
-**Response**:
-```json
-{
-  "version_id": "uuid...",
-  "status": "done",
-  "error_code": null,
-  "ingested_at": "2023-10-27T10:00:00Z"
-}
-```
-
-## 🧩 Data Model
-
-*   **Documents**: Stores metadata like title and type.
-*   **DocumentVersions**: Tracks ingestion attempts and status for each document.
-*   **Chunks**: Text segments extracted from documents.
-*   **Embeddings**: Vector representations of chunks (Model defined, generation logic pending in worker).
-
-## ⚠️ Current Status & Known Issues
-
-*   **Embedding Generation**: The database model for embeddings (`ChunkEmbedding`) exists, but the worker logic for generating embeddings (e.g., using OpenAI or local models) is currently not implemented in the ingestion pipeline.
-*   **Parser**: Currently supports simple text-based formats (`txt`, `md`, `html`). PDF and complex parsing logic are placeholders.
+### 4. Course Planning
+*   **Endpoint:** `POST /plan/courses`
+*   **Description:** Evaluates eligibility and recommends course terms conditionally based on past credits/grades.

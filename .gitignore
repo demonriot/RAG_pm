@@ -91,4 +91,4 @@ embeddings_cache/
 *.json
 *.txt
 
-test*.py
+test/
